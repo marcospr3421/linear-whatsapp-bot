@@ -88,7 +88,7 @@ export const listLinearProjects = async () => {
       id: p.id,
       name: p.name,
       state: p.state,
-      url: `https://linear.app/project/${p.id}` // Approximation
+      url: `https://linear.app/project/${p.id}`
     }));
   } catch (error) {
     console.error('Error listing Linear Projects:', error);
@@ -98,7 +98,6 @@ export const listLinearProjects = async () => {
 
 export const archiveLinearProject = async (projectIdOrName: string) => {
   try {
-    // Try to find by name first if it's not a UUID
     let projectId = projectIdOrName;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectIdOrName)) {
       const projects = await linearClient.projects({
@@ -117,6 +116,53 @@ export const archiveLinearProject = async (projectIdOrName: string) => {
     return { success: true };
   } catch (error) {
     console.error('Error archiving Linear Project:', error);
+    return { success: false, error };
+  }
+};
+
+export const searchLinearIssues = async (query: string) => {
+  try {
+    const issues = await linearClient.issues({
+      filter: { 
+        or: [
+          { title: { contains: query } },
+          { description: { contains: query } }
+        ]
+      },
+      first: 5
+    });
+    return issues.nodes.map(i => ({
+      identifier: i.identifier,
+      title: i.title,
+      status: i.state.name,
+      priority: i.priorityLabel,
+      url: i.url
+    }));
+  } catch (error) {
+    console.error('Error searching Linear Issues:', error);
+    return [];
+  }
+};
+
+export const updateIssueStatus = async (identifier: string, statusName: string) => {
+  try {
+    // We first need to find the state ID for the given status name
+    const workflowStates = await linearClient.workflowStates();
+    const targetState = workflowStates.nodes.find(s => 
+      s.name.toLowerCase().includes(statusName.toLowerCase())
+    );
+
+    if (!targetState) return { success: false, error: 'Status not found' };
+
+    const issues = await linearClient.issues({ filter: { identifier: { eq: identifier.toUpperCase() } } });
+    if (issues.nodes.length === 0) return { success: false, error: 'Issue not found' };
+
+    await linearClient.updateIssue(issues.nodes[0].id, {
+      stateId: targetState.id
+    });
+    return { success: true, status: targetState.name };
+  } catch (error) {
+    console.error('Error updating status:', error);
     return { success: false, error };
   }
 };

@@ -1,6 +1,6 @@
 import { initializeWhatsAppClient } from './whatsapp';
 import { analyzeContent, fileToGenerativePart, GeminiResponse } from './gemini';
-import { createLinearIssue, createLinearProject, listLinearProjects, archiveLinearProject } from './linear';
+import { createLinearIssue, createLinearProject, listLinearProjects, archiveLinearProject, searchLinearIssues, updateIssueStatus } from './linear';
 import { Part } from '@google/generative-ai';
 
 const client = initializeWhatsAppClient();
@@ -96,6 +96,39 @@ client.on('message_create', async (message: any) => {
       return;
     }
 
+    // HANDLE SEARCH ISSUES / STATUS
+    if (analysis.type === 'search_issues') {
+      const query = analysis.searchQuery || message.body || '';
+      await client.sendMessage(userId, `ADA: 🔎 Buscando informações sobre "${query}"...`);
+      const issues = await searchLinearIssues(query);
+      if (issues.length === 0) {
+        await client.sendMessage(userId, 'ADA: Não encontrei nenhuma tarefa correspondente.');
+      } else {
+        let msg = '*ADA - Tarefas Encontradas:*\n\n';
+        issues.forEach(i => {
+          msg += `*${i.identifier}*: ${i.title}\nStatus: ${i.status}\nPrioridade: ${i.priority || 'Nenhuma'}\n${i.url}\n\n`;
+        });
+        await client.sendMessage(userId, msg);
+      }
+      return;
+    }
+
+    // HANDLE UPDATE STATUS
+    if (analysis.type === 'update_status') {
+      if (!analysis.targetId || !analysis.targetStatus) {
+        await client.sendMessage(userId, 'ADA: Por favor, me informe o ID da tarefa (ex: MPR-123) e o novo status.');
+        return;
+      }
+      await client.sendMessage(userId, `ADA: ⏳ Atualizando status da tarefa ${analysis.targetId.toUpperCase()} para "${analysis.targetStatus}"...`);
+      const result = await updateIssueStatus(analysis.targetId, analysis.targetStatus);
+      if (result.success) {
+        await client.sendMessage(userId, `ADA: ✅ Status da tarefa *${analysis.targetId.toUpperCase()}* atualizado para "${result.status}" com sucesso!`);
+      } else {
+        await client.sendMessage(userId, `ADA: ❌ Falha ao atualizar: ${result.error}`);
+      }
+      return;
+    }
+
     // HANDLE CREATE ISSUE/PROJECT
     if (analysis.type === 'issue' || analysis.type === 'project') {
       try {
@@ -107,7 +140,6 @@ client.on('message_create', async (message: any) => {
         if (result.success) {
           await client.sendMessage(userId, `ADA: ✅ Projeto criado!\n*Título:* ${result.title}\n*Link:* ${result.url}`);
           
-          // Create proposed sub-issues
           if (analysis.issues && analysis.issues.length > 0) {
             await client.sendMessage(userId, `ADA: 🛠️ Criando ${analysis.issues.length} tarefas iniciais para este projeto...`);
             for (const issue of analysis.issues) {

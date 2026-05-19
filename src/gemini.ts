@@ -18,14 +18,16 @@ export interface GeminiIssue {
 }
 
 export interface GeminiResponse {
-  type: 'issue' | 'project' | 'list_projects' | 'cancel_project' | 'ignore';
+  type: 'issue' | 'project' | 'list_projects' | 'cancel_project' | 'search_issues' | 'update_status' | 'ignore';
   title: string;
   description: string;
-  priority?: number; // 0 (None), 1 (Urgent), 2 (High), 3 (Normal), 4 (Low)
-  targetId?: string; // ID of the project to cancel
-  issues?: GeminiIssue[]; // Sub-issues to create if it's a project
+  priority?: number;
+  targetId?: string; // ID of project to cancel or Issue Identifier (e.g. MPR-123)
+  targetStatus?: string; // New status name (e.g. "Done", "In Progress")
+  issues?: GeminiIssue[];
   needsClarification: boolean;
   clarificationMessage?: string;
+  searchQuery?: string;
 }
 
 export const analyzeContent = async (text: string, mediaParts?: Part[], history: string[] = []): Promise<GeminiResponse | null> => {
@@ -36,31 +38,32 @@ Analyze the message and conversation history to determine the user's intent.
 
 INTENTS:
 - "issue": Create a single task.
-- "project": Create a complex initiative. IF it's a project, you SHOULD also propose a list of initial sub-tasks (issues) to get it started based on the explanation.
-- "list_projects": User wants to see active projects.
-- "cancel_project": User wants to archive a project.
-- "ignore": Small talk, tests, or aborting.
+- "project": Create a project with sub-tasks.
+- "list_projects": List active projects.
+- "cancel_project": Archive a project.
+- "search_issues": User is asking for status or searching for issues (e.g., "qual o status de...", "onde está a tarefa...", "busque por...").
+- "update_status": User wants to change an issue status (e.g., "marque MPR-123 como concluída", "mude o status de...").
+- "ignore": Small talk, thanks, or aborting.
 
 CRITICAL RULES:
-1. NEVER create an issue/project if the information is incomplete (missing title, description, or priority).
-2. IF it's a project, try to break it down into 3-5 logical initial "issues" in the "issues" field.
-3. Identify priority: 1 (Urgent), 2 (High), 3 (Normal), 4 (Low). If not stated, ASK for it.
-4. "needsClarification" should be your DEFAULT state unless you have all info: Type, Title, Description, and Priority.
-5. AVOID creating genric titles like "No content provided". Use "ignore" or "needsClarification" instead.
-6. Always respond professionally as ADA.
+1. NEVER create an issue/project if info is incomplete.
+2. For "search_issues", extract keywords into "searchQuery".
+3. For "update_status", extract the issue identifier (e.g., "MPR-123") into "targetId" and the new status into "targetStatus".
+4. Identify priority (1-4).
+5. "needsClarification" is DEFAULT if info is missing.
 
 Response ONLY with a raw JSON object:
 {
-  "type": "issue" | "project" | "list_projects" | "cancel_project" | "ignore",
+  "type": "issue" | "project" | "list_projects" | "cancel_project" | "search_issues" | "update_status" | "ignore",
   "title": "Concise title",
   "description": "Detailed description",
   "priority": number | null,
-  "targetId": "Name/ID for cancel",
-  "issues": [
-    { "title": "Issue title", "description": "Issue desc", "priority": 3 }
-  ],
+  "targetId": "ID/Identifier",
+  "targetStatus": "Status name",
+  "searchQuery": "Search keywords",
+  "issues": [ { "title": "...", "description": "...", "priority": 3 } ],
   "needsClarification": boolean,
-  "clarificationMessage": "A friendly response or question in Portuguese"
+  "clarificationMessage": "Response in Portuguese"
 }
 
 History:
