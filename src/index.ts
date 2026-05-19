@@ -1,94 +1,143 @@
 import { initializeWhatsAppClient } from './whatsapp';
-import { analyzeContent, fileToGenerativePart } from './gemini';
-import { createLinearIssue, createLinearProject } from './linear';
+import { analyzeContent, fileToGenerativePart, GeminiResponse } from './gemini';
+import { createLinearIssue, createLinearProject, listLinearProjects, archiveLinearProject } from './linear';
 import { Part } from '@google/generative-ai';
 
 const client = initializeWhatsAppClient();
 
-// Add logic to listen for all messages (including sent by you to yourself)
+// Simple in-memory session management
+interface Session {
+  history: string[];
+  lastAnalysis?: GeminiResponse;
+  mediaParts?: Part[];
+}
+const sessions: Record<string, Session> = {};
+
 client.on('message_create', async (message: any) => {
   try {
-    // Only process messages that start with a specific trigger
-    const trigger = '!linear';
-    if (!message.body.toLowerCase().startsWith(trigger)) {
-      return;
-    }
-
-    console.log(`[TRIGGER MATCH] Found trigger in message: ${message.body}`);
-
-    // Remove the trigger from the content to be analyzed
-    const cleanContent = message.body.slice(trigger.length).trim();
-    
-    // If it's just the trigger without content, and no media, ignore
-    if (!cleanContent && !message.hasMedia) {
-      console.log('Empty trigger message, ignoring.');
-      return;
-    }
-
     if (message.isStatus) return;
 
     const chat = await message.getChat();
-    console.log(`[PROCESSING] From: ${chat.name} (${message.from}) | Body: ${cleanContent}`);
-    
-    try {
-      // If the message is from "me", we might want to send a separate message instead of a reply
-      // or just reply normally. Let's try to reply.
-      await client.sendMessage(message.from, '🤖 Processando sua solicitação para o Linear...');
-    } catch (e) {
-      console.warn('Initial status message failed:', e);
+    if (chat.isGroup) return;
+
+    const userId = message.from;
+    if (!sessions[userId]) {
+      sessions[userId] = { history: [] };
+    }
+    const session = sessions[userId];
+
+    if (message.body) {
+      session.history.push(`User: ${message.body}`);
     }
 
-    let textContent = cleanContent;
-    let mediaParts: Part[] = [];
+    if (session.history.length > 10) {
+      session.history.shift();
+    }
 
-    // Handle media (image, audio, etc.)
+    let mediaParts: Part[] = [];
     if (message.hasMedia) {
       const media = await message.downloadMedia();
       if (media) {
-        mediaParts.push(fileToGenerativePart(media.data, media.mimetype));
-        // If the message is just media with no text, provide a default text
-        if (!textContent) {
-          textContent = 'Analyze the attached media and determine what to create in Linear.';
+        const part = fileToGenerativePart(media.data, media.mimetype);
+        mediaParts.push(part);
+        session.mediaParts = (session.mediaParts || []).concat([part]);
+      }
+    }
+
+    const analysis = await analyzeContent(message.body || '', mediaParts, session.history);
+    if (!analysis) return;
+
+    console.log(`[INTENT] ${analysis.type} | From: ${chat.name}`);
+
+    if (analysis.type === 'ignore' || analysis.needsClarification) {
+      if (analysis.clarificationMessage) {
+        await client.sendMessage(userId, `ADA: ${analysis.clarificationMessage}`);
+        session.history.push(`ADA: ${analysis.clarificationMessage}`);
+      }
+      if (analysis.needsClarification) {
+        session.lastAnalysis = analysis;
+      } else {
+        session.lastAnalysis = undefined;
+        session.mediaParts = undefined;
+      }
+      return;
+    }
+
+    // HANDLE LIST PROJECTS
+    if (analysis.type === 'list_projects') {
+      await client.sendMessage(userId, 'ADA: 🔎 Buscando seus projetos ativos...');
+      const projects = await listLinearProjects();
+      if (projects.length === 0) {
+        await client.sendMessage(userId, 'ADA: Você não possui projetos ativos no momento.');
+      } else {
+        let msg = '*ADA - Seus Projetos Ativos:*\n\n';
+        projects.forEach((p, i) => {
+          msg += `${i + 1}. *${p.name}*\nStatus: ${p.state}\nID: ${p.id}\n\n`;
+        });
+        msg += '_Para cancelar um projeto, diga "cancelar o projeto [nome ou ID]"_';
+        await client.sendMessage(userId, msg);
+      }
+      return;
+    }
+
+    // HANDLE CANCEL PROJECT
+    if (analysis.type === 'cancel_project') {
+      if (!analysis.targetId) {
+        await client.sendMessage(userId, 'ADA: Qual o nome ou ID do projeto que você deseja cancelar?');
+        return;
+      }
+      await client.sendMessage(userId, `ADA: ⏳ Cancelando o projeto: ${analysis.targetId}...`);
+      const result = await archiveLinearProject(analysis.targetId);
+      if (result.success) {
+        await client.sendMessage(userId, `ADA: ✅ Projeto "${analysis.targetId}" arquivado com sucesso.`);
+      } else {
+        await client.sendMessage(userId, `ADA: ❌ Não consegui encontrar ou cancelar o projeto "${analysis.targetId}". Verifique o nome/ID.`);
+      }
+      return;
+    }
+
+    // HANDLE CREATE ISSUE/PROJECT
+    if (analysis.type === 'issue' || analysis.type === 'project') {
+      try {
+        await client.sendMessage(userId, 'ADA: ⚙️ Entendido. Gerando no Linear...');
+      } catch (e) {}
+
+      if (analysis.type === 'project') {
+        const result = await createLinearProject(analysis.title, analysis.description);
+        if (result.success) {
+          await client.sendMessage(userId, `ADA: ✅ Projeto criado!\n*Título:* ${result.title}\n*Link:* ${result.url}`);
+          
+          // Create proposed sub-issues
+          if (analysis.issues && analysis.issues.length > 0) {
+            await client.sendMessage(userId, `ADA: 🛠️ Criando ${analysis.issues.length} tarefas iniciais para este projeto...`);
+            for (const issue of analysis.issues) {
+              await createLinearIssue(issue.title, issue.description, issue.priority, result.id);
+            }
+            await client.sendMessage(userId, `ADA: ✨ Todas as tarefas iniciais foram vinculadas ao projeto.`);
+          }
+          session.history.push(`ADA: Projeto criado: ${result.url}`);
+        } else {
+          await client.sendMessage(userId, `ADA: ❌ Erro ao criar o projeto no Linear.`);
+        }
+      } else {
+        const result = await createLinearIssue(analysis.title, analysis.description, analysis.priority || 0);
+        if (result.success) {
+          const priorityLabels: Record<number, string> = { 0: 'Nenhuma', 1: 'Urgente 🚨', 2: 'Alta 🔴', 3: 'Normal 🟡', 4: 'Baixa 🟢' };
+          const pLabel = priorityLabels[analysis.priority || 0];
+          await client.sendMessage(userId, `ADA: ✅ Issue criada com sucesso!\n*Título:* ${result.title}\n*Prioridade:* ${pLabel}\n*Link:* ${result.url}`);
+          session.history.push(`ADA: Issue criada: ${result.url}`);
+        } else {
+          await client.sendMessage(userId, `ADA: ❌ Erro ao criar a issue no Linear.`);
         }
       }
     }
 
-    // Call Gemini to analyze the content
-    const analysis = await analyzeContent(textContent, mediaParts);
-
-    if (!analysis) {
-      await message.reply('❌ Falha ao analisar o conteúdo com o Gemini.');
-      return;
-    }
-
-    console.log('Gemini Analysis:', analysis);
-
-    // Create Issue or Project in Linear
-    if (analysis.type === 'project') {
-      const result = await createLinearProject(analysis.title, analysis.description);
-      if (result.success) {
-        await client.sendMessage(message.from, `✅ Projeto criado com sucesso!\n*Título:* ${result.title}\n*Link:* ${result.url}`);
-      } else {
-        await client.sendMessage(message.from, `❌ Erro ao criar o projeto no Linear.`);
-      }
-    } else {
-      const result = await createLinearIssue(analysis.title, analysis.description);
-      if (result.success) {
-        await client.sendMessage(message.from, `✅ Issue criada com sucesso!\n*Título:* ${result.title}\n*Link:* ${result.url}`);
-      } else {
-        await client.sendMessage(message.from, `❌ Erro ao criar a issue no Linear.`);
-      }
-    }
+    session.lastAnalysis = undefined;
+    session.mediaParts = undefined;
 
   } catch (error) {
     console.error('Error processing message:', error);
-    try {
-      await client.sendMessage(message.from, '❌ Ocorreu um erro interno ao tentar processar sua mensagem.');
-    } catch (e) {
-      console.error('Failed to send error message:', e);
-    }
   }
 });
 
-// Start the client
 client.initialize();

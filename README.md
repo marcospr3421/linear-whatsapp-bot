@@ -1,15 +1,17 @@
-# Linear WhatsApp Bot 🤖🚀
+# ADA (Ada Lovelace) - Linear WhatsApp Bot 🤖🚀
 
-Este bot integra o **WhatsApp** com o **Linear**, utilizando a inteligência do **Google Gemini 2.5 Flash** para transformar mensagens de texto, áudio e imagem em tarefas (Issues) ou Projetos de forma automática e inteligente.
+Este bot, batizado de **ADA (Ada Lovelace)**, integra o **WhatsApp** com o **Linear**, utilizando a inteligência do **Google Gemini 2.5 Flash** para transformar mensagens de texto, áudio e imagem em tarefas (Issues) ou Projetos de forma automática e inteligente.
 
 ## ✨ Funcionalidades
 
 - 📝 **Criação de Issues:** Transforma mensagens curtas ou comandos em tickets no Linear.
 - 📂 **Criação de Projetos:** Identifica quando uma solicitação é complexa e sugere a criação de um projeto.
+- 📋 **Listagem de Projetos:** Lista projetos ativos e permite o gerenciamento direto pelo WhatsApp.
+- 🗄️ **Arquivamento de Projetos:** Permite cancelar ou arquivar projetos existentes através de linguagem natural.
 - 🎙️ **Suporte a Áudio:** Transcreve e analisa áudios enviados para criar tarefas detalhadas.
 - 📸 **Suporte a Imagem:** Analisa prints de tela ou fotos para extrair contexto de bugs ou novas funcionalidades.
+- 🧠 **Inteligência Contextual:** ADA possui memória de curto prazo para conversas fluidas e solicita informações faltantes (como prioridade) antes de criar tarefas.
 - 🔗 **Geração de Links:** Retorna o link direto da tarefa criada no WhatsApp.
-- 🔒 **Segurança por Gatilho:** Só processa mensagens que começam com o comando `!linear`.
 
 ## 🛠️ Tecnologias Utilizadas
 

@@ -15,13 +15,11 @@ if (apiKey) {
   console.warn('LinearClient not initialized. Set LINEAR_API_KEY.');
 }
 
-
-export const createLinearIssue = async (title: string, description: string) => {
+export const createLinearIssue = async (title: string, description: string, priority?: number, projectId?: string) => {
   try {
     const teamId = process.env.LINEAR_TEAM_ID;
     
     if (!teamId) {
-      // If teamId isn't provided, fetch the first team available
       const teams = await linearClient.teams();
       if (teams.nodes.length === 0) {
         throw new Error('No teams found in Linear workspace.');
@@ -33,6 +31,8 @@ export const createLinearIssue = async (title: string, description: string) => {
       teamId: process.env.LINEAR_TEAM_ID as string,
       title,
       description,
+      priority: priority || 0,
+      projectId: projectId || undefined,
     });
     
     const issue = await issuePayload?.issue;
@@ -69,12 +69,54 @@ export const createLinearProject = async (name: string, description: string) => 
 
     const project = await projectPayload?.project;
     if (project) {
-      return { success: true, url: project.url, title: project.name };
+      return { success: true, id: project.id, url: project.url, title: project.name };
     } else {
       return { success: false, error: 'Project creation returned null' };
     }
   } catch (error) {
     console.error('Error creating Linear Project:', error);
+    return { success: false, error };
+  }
+};
+
+export const listLinearProjects = async () => {
+  try {
+    const projects = await linearClient.projects({
+      filter: { state: { in: ['started', 'planned'] } }
+    });
+    return projects.nodes.map(p => ({
+      id: p.id,
+      name: p.name,
+      state: p.state,
+      url: `https://linear.app/project/${p.id}` // Approximation
+    }));
+  } catch (error) {
+    console.error('Error listing Linear Projects:', error);
+    return [];
+  }
+};
+
+export const archiveLinearProject = async (projectIdOrName: string) => {
+  try {
+    // Try to find by name first if it's not a UUID
+    let projectId = projectIdOrName;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectIdOrName)) {
+      const projects = await linearClient.projects({
+        filter: { name: { contains: projectIdOrName } }
+      });
+      if (projects.nodes.length > 0) {
+        projectId = projects.nodes[0].id;
+      } else {
+        return { success: false, error: 'Project not found' };
+      }
+    }
+
+    await linearClient.updateProject(projectId, {
+      state: 'archived'
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error archiving Linear Project:', error);
     return { success: false, error };
   }
 };

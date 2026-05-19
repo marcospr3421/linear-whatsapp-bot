@@ -9,60 +9,82 @@ if (!apiKey) {
 }
 
 const genAI = new GoogleGenerativeAI(apiKey || '');
-// Using gemini-2.5-flash which is the stable version in 2026
 const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-export interface GeminiResponse {
-  type: 'issue' | 'project';
+export interface GeminiIssue {
   title: string;
   description: string;
+  priority: number;
 }
 
-export const analyzeContent = async (text: string, mediaParts?: Part[]): Promise<GeminiResponse | null> => {
+export interface GeminiResponse {
+  type: 'issue' | 'project' | 'list_projects' | 'cancel_project' | 'ignore';
+  title: string;
+  description: string;
+  priority?: number; // 0 (None), 1 (Urgent), 2 (High), 3 (Normal), 4 (Low)
+  targetId?: string; // ID of the project to cancel
+  issues?: GeminiIssue[]; // Sub-issues to create if it's a project
+  needsClarification: boolean;
+  clarificationMessage?: string;
+}
+
+export const analyzeContent = async (text: string, mediaParts?: Part[], history: string[] = []): Promise<GeminiResponse | null> => {
   try {
     const prompt = `
-You are an intelligent project management assistant. 
-Your goal is to analyze the provided message (which may include text, audio transcripts, or images) and decide if it should be converted into a Linear Issue or a Linear Project.
+You are ADA (Ada Lovelace), an intelligent project management assistant for Linear.
+Analyze the message and conversation history to determine the user's intent.
 
-Please extract the necessary details and respond ONLY with a valid JSON object adhering to the following structure:
+INTENTS:
+- "issue": Create a single task.
+- "project": Create a complex initiative. IF it's a project, you SHOULD also propose a list of initial sub-tasks (issues) to get it started based on the explanation.
+- "list_projects": User wants to see active projects.
+- "cancel_project": User wants to archive a project.
+- "ignore": Small talk, tests, or aborting.
+
+CRITICAL RULES:
+1. NEVER create an issue/project if the information is incomplete (missing title, description, or priority).
+2. IF it's a project, try to break it down into 3-5 logical initial "issues" in the "issues" field.
+3. Identify priority: 1 (Urgent), 2 (High), 3 (Normal), 4 (Low). If not stated, ASK for it.
+4. "needsClarification" should be your DEFAULT state unless you have all info: Type, Title, Description, and Priority.
+5. AVOID creating genric titles like "No content provided". Use "ignore" or "needsClarification" instead.
+6. Always respond professionally as ADA.
+
+Response ONLY with a raw JSON object:
 {
-  "type": "issue" | "project",
-  "title": "A short and concise title for the issue or project",
-  "description": "A detailed description or summary of the task/project extracted from the context. If it's an issue, describe the bug or feature request. Include relevant context."
+  "type": "issue" | "project" | "list_projects" | "cancel_project" | "ignore",
+  "title": "Concise title",
+  "description": "Detailed description",
+  "priority": number | null,
+  "targetId": "Name/ID for cancel",
+  "issues": [
+    { "title": "Issue title", "description": "Issue desc", "priority": 3 }
+  ],
+  "needsClarification": boolean,
+  "clarificationMessage": "A friendly response or question in Portuguese"
 }
 
-Use the following guidelines:
-- If the content implies a single task, bug fix, or specific feature, classify it as an "issue".
-- If the content implies a larger initiative, a new feature involving multiple steps, or mentions "project", classify it as a "project".
-- Do NOT include markdown blocks like \`\`\`json in your response, just return the raw JSON object.
+History:
+${history.join('\n')}
 
-Content:
+Latest Message:
 "${text}"
 `;
 
     const contents: Array<string | Part> = [prompt];
-    
     if (mediaParts && mediaParts.length > 0) {
       contents.push(...mediaParts);
     }
 
     const result = await model.generateContent(contents);
     const responseText = result.response.text();
-    
-    // Clean up potential markdown formatting if the model still outputs it
     const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    const parsedData = JSON.parse(cleanJson) as GeminiResponse;
-    return parsedData;
+    return JSON.parse(cleanJson) as GeminiResponse;
   } catch (error) {
     console.error('Error analyzing content with Gemini:', error);
     return null;
   }
 };
 
-/**
- * Helper to convert base64 media from WhatsApp into a Gemini Part object
- */
 export const fileToGenerativePart = (base64Data: string, mimeType: string): Part => {
   return {
     inlineData: {
