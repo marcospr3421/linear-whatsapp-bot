@@ -28,5 +28,9 @@ export const initializeWhatsAppClient = (): Client => {
     console.error('WhatsApp Authentication failure:', msg);
   });
 
+  client.on('disconnected', (reason) => {
+    console.error('[WHATSAPP] Disconnected:', reason);
+  });
+
   return client;
 };

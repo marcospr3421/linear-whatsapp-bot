@@ -18,16 +18,37 @@ export interface GeminiIssue {
 }
 
 export interface GeminiResponse {
-  type: 'issue' | 'project' | 'list_projects' | 'cancel_project' | 'search_issues' | 'update_status' | 'ignore';
+  type:
+    | 'issue'
+    | 'project'
+    | 'list_projects'
+    | 'cancel_project'
+    | 'search_issues'
+    | 'update_status'
+    | 'assign_issue'
+    | 'update_priority'
+    | 'update_due_date'
+    | 'add_comment'
+    | 'project_summary'
+    | 'weekly_report'
+    | 'confirm_create'
+    | 'list_team'
+    | 'ignore';
   title: string;
   description: string;
   priority?: number;
-  targetId?: string; // ID of project to cancel or Issue Identifier (e.g. MPR-123)
-  targetStatus?: string; // New status name (e.g. "Done", "In Progress")
+  targetId?: string;
+  targetStatus?: string;
+  assigneeName?: string;
+  projectId?: string;
+  dueDate?: string; // YYYY-MM-DD
+  commentBody?: string;
   issues?: GeminiIssue[];
   needsClarification: boolean;
   clarificationMessage?: string;
   searchQuery?: string;
+  searchAssignee?: string;
+  confirmAction?: boolean;
 }
 
 export const analyzeContent = async (text: string, mediaParts?: Part[], history: string[] = []): Promise<GeminiResponse | null> => {
@@ -41,26 +62,40 @@ INTENTS:
 - "project": Create a project with sub-tasks.
 - "list_projects": List active projects.
 - "cancel_project": Archive a project.
-- "search_issues": User is asking for status or searching for issues (e.g., "qual o status de...", "onde está a tarefa...", "busque por...").
-- "update_status": User wants to change an issue status (e.g., "marque MPR-123 como concluída", "mude o status de...").
+- "search_issues": Search issues (extract "searchQuery", optional "searchAssignee" for filter by person).
+- "update_status": Change issue status (targetId + targetStatus).
+- "assign_issue": Assign issue to someone (targetId + assigneeName).
+- "update_priority": Change priority (targetId + priority 1-4).
+- "update_due_date": Set due date (targetId + dueDate as YYYY-MM-DD). Parse "sexta", "amanhã" to actual dates.
+- "add_comment": Add comment to issue (targetId + commentBody).
+- "project_summary": Status report of a project (targetId or title = project name).
+- "weekly_report": User wants weekly productivity summary.
+- "confirm_create": User confirms creating after duplicate warning ("sim", "criar mesmo assim").
+- "list_team": List team members.
 - "ignore": Small talk, thanks, or aborting.
 
 CRITICAL RULES:
 1. NEVER create an issue/project if info is incomplete.
-2. For "search_issues", extract keywords into "searchQuery".
-3. For "update_status", extract the issue identifier (e.g., "MPR-123") into "targetId" and the new status into "targetStatus".
-4. Identify priority (1-4).
-5. "needsClarification" is DEFAULT if info is missing.
+2. For "issue", if the user mentions a project name, extract it into "projectId".
+3. Dates must be YYYY-MM-DD in "dueDate".
+4. "needsClarification" is DEFAULT if info is missing.
+5. Respond in Portuguese in clarificationMessage.
 
 Response ONLY with a raw JSON object:
 {
-  "type": "issue" | "project" | "list_projects" | "cancel_project" | "search_issues" | "update_status" | "ignore",
+  "type": "...",
   "title": "Concise title",
   "description": "Detailed description",
   "priority": number | null,
-  "targetId": "ID/Identifier",
+  "targetId": "ID/Identifier/Project name",
   "targetStatus": "Status name",
+  "assigneeName": "Person name",
+  "projectId": "Project Name or ID",
+  "dueDate": "YYYY-MM-DD",
+  "commentBody": "Comment text",
   "searchQuery": "Search keywords",
+  "searchAssignee": "Person name filter",
+  "confirmAction": boolean,
   "issues": [ { "title": "...", "description": "...", "priority": 3 } ],
   "needsClarification": boolean,
   "clarificationMessage": "Response in Portuguese"
@@ -80,7 +115,15 @@ Latest Message:
 
     const result = await model.generateContent(contents);
     const responseText = result.response.text();
-    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // Find the first { and the last } to extract the JSON object
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error('No JSON found in Gemini response:', responseText);
+      return null;
+    }
+    
+    const cleanJson = jsonMatch[0];
     return JSON.parse(cleanJson) as GeminiResponse;
   } catch (error) {
     console.error('Error analyzing content with Gemini:', error);
