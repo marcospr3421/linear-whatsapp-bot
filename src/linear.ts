@@ -166,7 +166,7 @@ async function findIssueByIdentifier(identifier: string) {
   }
 }
 
-export const updateIssueStatus = async (identifier: string, statusName: string) => {
+export const updateIssueStatus = async (identifierOrTitle: string, statusName: string) => {
   try {
     // We first need to find the state ID for the given status name
     const workflowStates = await linearClient.workflowStates();
@@ -176,13 +176,28 @@ export const updateIssueStatus = async (identifier: string, statusName: string) 
 
     if (!targetState) return { success: false, error: 'Status not found' };
 
-    const issue = await findIssueByIdentifier(identifier);
-    if (!issue) return { success: false, error: 'Issue not found' };
+    let issue: any = null;
+    
+    // Check if it's an ID
+    if (/^[a-z]{1,10}-\d+$/i.test(identifierOrTitle.trim())) {
+      issue = await findIssueByIdentifier(identifierOrTitle);
+    } else {
+      // Find issue by title contains
+      const issues = await linearClient.issues({
+        filter: { title: { contains: identifierOrTitle } },
+        first: 1
+      });
+      if (issues.nodes.length > 0) {
+        issue = issues.nodes[0];
+      }
+    }
+
+    if (!issue) return { success: false, error: 'Tarefa não encontrada' };
 
     await linearClient.updateIssue(issue.id, {
       stateId: targetState.id
     });
-    return { success: true, status: targetState.name };
+    return { success: true, status: targetState.name, identifier: issue.identifier, title: issue.title };
   } catch (error) {
     console.error('Error updating status:', error);
     return { success: false, error };
@@ -220,9 +235,25 @@ export const updateProjectStatus = async (projectNameOrId: string, statusName: s
       state = 'canceled';
     }
     
-    await linearClient.updateProject(projectId, { state });
+    const projectStatuses = await linearClient.projectStatuses();
+    const targetProjectStatus = projectStatuses.nodes.find((s: any) => 
+      s.name.toLowerCase() === state.toLowerCase() ||
+      s.key?.toLowerCase() === state.toLowerCase()
+    );
+    
+    if (targetProjectStatus) {
+      await linearClient.updateProject(projectId, { statusId: targetProjectStatus.id });
+    } else {
+      if (state === 'completed') {
+        await linearClient.updateProject(projectId, { completedAt: new Date() });
+      } else if (state === 'canceled') {
+        await linearClient.updateProject(projectId, { canceledAt: new Date() });
+      } else {
+        return { success: false, error: `Estado de projeto "${state}" não encontrado.` };
+      }
+    }
     const p = await linearClient.project(projectId);
-    return { success: true, projectName: p?.name || projectNameOrId, state };
+    return { success: true, projectName: p?.name || projectNameOrId, state: targetProjectStatus?.name || state };
   } catch (error: any) {
     console.error('Error updating project status:', error);
     return { success: false, error: error?.message || error };
@@ -523,5 +554,80 @@ export const generateWeeklyReport = async (): Promise<string> => {
   } catch (error) {
     console.error('Error generating weekly report:', error);
     return '❌ Não foi possível gerar o relatório.';
+  }
+};
+
+export const getMyDailyFocus = async () => {
+  try {
+    const viewer = await linearClient.viewer;
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    const issues = await linearClient.issues({
+      filter: {
+        assignee: { id: { eq: viewer.id } },
+        state: { type: { nin: ['completed', 'canceled'] } }
+      }
+    });
+
+    const today: any[] = [];
+    const overdue: any[] = [];
+    const backlog: any[] = [];
+
+    for (const i of issues.nodes) {
+      const state = i.state ? await i.state : undefined;
+      const issueData = {
+        identifier: i.identifier,
+        title: i.title,
+        status: state?.name || '—',
+        dueDate: i.dueDate || null,
+        url: i.url
+      };
+
+      if (!i.dueDate) {
+        backlog.push(issueData);
+      } else if (i.dueDate === todayStr) {
+        today.push(issueData);
+      } else if (i.dueDate < todayStr) {
+        overdue.push(issueData);
+      } else {
+        backlog.push(issueData);
+      }
+    }
+
+    return { success: true, name: viewer.name, today, overdue, backlogCount: backlog.length };
+  } catch (error: any) {
+    console.error('Error getting daily focus:', error);
+    return { success: false, error: error?.message || error };
+  }
+};
+
+export const getTeamWeeklyActivity = async () => {
+  try {
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const issues = await linearClient.issues({
+      filter: { updatedAt: { gte: weekAgo.toISOString() } },
+      first: 100
+    });
+
+    const activityList = await Promise.all(
+      issues.nodes.map(async (i) => {
+        const state = i.state ? await i.state : undefined;
+        const assignee = i.assignee ? await i.assignee : undefined;
+        return {
+          identifier: i.identifier,
+          title: i.title,
+          status: state?.name || '—',
+          assignee: assignee?.name || 'Sem responsável',
+          updatedAt: i.updatedAt
+        };
+      })
+    );
+
+    return { success: true, activities: activityList };
+  } catch (error: any) {
+    console.error('Error fetching weekly activity:', error);
+    return { success: false, error: error?.message || error };
   }
 };

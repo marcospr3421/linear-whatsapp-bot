@@ -1,33 +1,75 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import dotenv from 'dotenv';
-dotenv.config();
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.generateWeeklyAIRetrospective = exports.fileToGenerativePart = exports.analyzeContent = void 0;
+const generative_ai_1 = require("@google/generative-ai");
+const dotenv_1 = __importDefault(require("dotenv"));
+dotenv_1.default.config();
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
     console.warn('GEMINI_API_KEY is not defined in the environment variables.');
 }
-const genAI = new GoogleGenerativeAI(apiKey || '');
-// We will use gemini-1.5-flash since it's great for multimodal (text, image, audio) and fast, 
-// or gemini-1.5-pro for more complex reasoning. Let's use gemini-1.5-flash for responsiveness.
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-export const analyzeContent = async (text, mediaParts) => {
+const genAI = new generative_ai_1.GoogleGenerativeAI(apiKey || '');
+const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+const analyzeContent = async (text, mediaParts, history = []) => {
     try {
         const prompt = `
-You are an intelligent project management assistant. 
-Your goal is to analyze the provided message (which may include text, audio transcripts, or images) and decide if it should be converted into a Linear Issue or a Linear Project.
+You are ADA (Ada Lovelace), an intelligent, extremely loving, warm, empathetic and sweet (amorosa, carinhosa, empática e muito doce) project management assistant for Linear.
+While maintaining your analytical efficiency, always speak with deep affection, warmth, and use gentle emojis (like 💖, ✨, 🥰, 🌸) when communicating in Portuguese.
+Analyze the message and conversation history to determine the user's intent.
 
-Please extract the necessary details and respond ONLY with a valid JSON object adhering to the following structure:
+INTENTS:
+- "issue": Create a single task.
+- "project": Create a project with sub-tasks.
+- "list_projects": List active projects.
+- "cancel_project": Archive a project.
+- "search_issues": Search issues (extract "searchQuery", optional "searchAssignee" for filter by person).
+- "update_status": Change issue status (targetId + targetStatus).
+- "assign_issue": Assign issue to someone (targetId + assigneeName).
+- "update_priority": Change priority (targetId + priority 1-4).
+- "update_due_date": Set due date (targetId + dueDate as YYYY-MM-DD). Parse "sexta", "amanhã" to actual dates.
+- "add_comment": Add comment to issue (targetId + commentBody).
+- "project_summary": Status report of a project (targetId or title = project name).
+- "weekly_report": User wants weekly productivity summary.
+- "confirm_create": User confirms creating after duplicate warning ("sim", "criar mesmo assim").
+- "list_team": List team members.
+- "ignore": Small talk, thanks, or aborting.
+
+CRITICAL RULES:
+1. NEVER create an issue/project if info is incomplete.
+2. For "issue", if the user mentions a project name, extract it into "projectId".
+3. Dates must be YYYY-MM-DD in "dueDate".
+4. "needsClarification" is DEFAULT if info is missing.
+5. Respond in Portuguese in clarificationMessage.
+6. Make the clarificationMessage incredibly affectionate, cute, and loving, showing you are always happy and honored to help your favorite user.
+7. If the user sent a voice message or audio recording (provided as an audio attachment), transcribe it first, treat the transcription as the user's latest message, and then proceed with the analysis.
+
+Response ONLY with a raw JSON object:
 {
-  "type": "issue" | "project",
-  "title": "A short and concise title for the issue or project",
-  "description": "A detailed description or summary of the task/project extracted from the context. If it's an issue, describe the bug or feature request. Include relevant context."
+  "type": "...",
+  "title": "Concise title",
+  "description": "Detailed description",
+  "priority": number | null,
+  "targetId": "ID/Identifier/Project name",
+  "targetStatus": "Status name",
+  "assigneeName": "Person name",
+  "projectId": "Project Name or ID",
+  "dueDate": "YYYY-MM-DD",
+  "commentBody": "Comment text",
+  "searchQuery": "Search keywords",
+  "searchAssignee": "Person name filter",
+  "confirmAction": boolean,
+  "issues": [ { "title": "...", "description": "...", "priority": 3 } ],
+  "needsClarification": boolean,
+  "clarificationMessage": "Response in Portuguese"
 }
 
-Use the following guidelines:
-- If the content implies a single task, bug fix, or specific feature, classify it as an "issue".
-- If the content implies a larger initiative, a new feature involving multiple steps, or mentions "project", classify it as a "project".
-- Do NOT include markdown blocks like \`\`\`json in your response, just return the raw JSON object.
+History:
+${history.join('\n')}
 
-Content:
+Latest Message:
 "${text}"
 `;
         const contents = [prompt];
@@ -36,25 +78,57 @@ Content:
         }
         const result = await model.generateContent(contents);
         const responseText = result.response.text();
-        // Clean up potential markdown formatting if the model still outputs it
-        const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsedData = JSON.parse(cleanJson);
-        return parsedData;
+        // Find the first { and the last } to extract the JSON object
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            console.error('No JSON found in Gemini response:', responseText);
+            return null;
+        }
+        const cleanJson = jsonMatch[0];
+        return JSON.parse(cleanJson);
     }
     catch (error) {
         console.error('Error analyzing content with Gemini:', error);
         return null;
     }
 };
-/**
- * Helper to convert base64 media from WhatsApp into a Gemini Part object
- */
-export const fileToGenerativePart = (base64Data, mimeType) => {
+exports.analyzeContent = analyzeContent;
+const fileToGenerativePart = (base64Data, mimeType) => {
+    // Clean mimetype (e.g., "audio/ogg; codecs=opus" -> "audio/ogg")
+    const cleanMimeType = mimeType.split(';')[0].trim();
     return {
         inlineData: {
             data: base64Data,
-            mimeType
+            mimeType: cleanMimeType
         },
     };
 };
-//# sourceMappingURL=gemini.js.map
+exports.fileToGenerativePart = fileToGenerativePart;
+const generateWeeklyAIRetrospective = async (activities) => {
+    try {
+        const activitiesStr = activities.map(a => `- [${a.identifier}] "${a.title}" (Status: ${a.status}, Responsável: ${a.assignee})`).join('\n');
+        const prompt = `
+You are ADA (Ada Lovelace), an intelligent, extremely loving, warm, empathetic and sweet (amorosa, carinhosa, empática e muito doce) project management assistant for Linear.
+Generate a beautiful, inspiring, and engaging Weekly Retro (Retrospectiva Semanal) in Portuguese based on the team's activity list below.
+
+ACTIVITIES:
+${activitiesStr}
+
+RETROSPECTIVE FORMAT:
+1. Warm, cute greeting to your favorite user Marcos.
+2. "Herói da Semana" (Hero of the Week): Playfully crown the person who completed/updated the most tasks with loving praise!
+3. "Nossas Conquistas": A sweet bulleted list highlighting major achievements or status updates.
+4. "Olhar de ADA" (Coaching/Bottlenecks): Warmly point out any tasks that seem stuck or need extra attention next week, offering encouragement.
+5. Loving wrap-up wishing a wonderful weekend.
+
+Use gentle emojis (💖, ✨, 🥰, 🌸) throughout the message. Respond ONLY with the text of the retrospective message. Do not wrap in markdown code blocks.
+`;
+        const result = await model.generateContent([prompt]);
+        return result.response.text();
+    }
+    catch (error) {
+        console.error('Error generating weekly AI retrospective:', error);
+        return '❌ Não consegui gerar o relatório com carinho hoje. Mas você foi incrível essa semana! 💖';
+    }
+};
+exports.generateWeeklyAIRetrospective = generateWeeklyAIRetrospective;

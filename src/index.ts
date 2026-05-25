@@ -9,6 +9,7 @@ import {
   updateIssueStatus,
   updateProjectStatus,
   closeAllProjectIssues,
+  getMyDailyFocus,
   assignIssue,
   updateIssuePriority,
   listTeamMembers,
@@ -23,6 +24,7 @@ import { startWebhookServer } from './webhook';
 import { startWeeklyReportScheduler } from './scheduler';
 import { isAllowedNumber } from './auth';
 import { ADA, priorityLabel, projectStateIcon, issueStatusIcon } from './messages';
+import { sessions, Session } from './sessions';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -32,14 +34,6 @@ const NOTIFY_NUMBER = process.env.NOTIFY_NUMBER;
 
 startWebhookServer(client);
 startWeeklyReportScheduler(client);
-
-interface Session {
-  history: string[];
-  lastAnalysis?: GeminiResponse;
-  mediaParts?: Part[];
-  pendingCreate?: GeminiResponse;
-}
-const sessions: Record<string, Session> = {};
 
 client.on('disconnected', async (reason) => {
   if (!NOTIFY_NUMBER) return;
@@ -75,9 +69,75 @@ client.on('message_create', async (message: any) => {
     }
     const session = sessions[userId];
 
+    // Intercept replies to comment notifications
+    if (session.pendingReplyIssueId && message.body) {
+      const replyBody = message.body.trim();
+      const issueId = session.pendingReplyIssueId;
+      const issueTitle = session.pendingReplyIssueTitle || '';
+      
+      const cleanReply = replyBody.toLowerCase();
+      if (cleanReply === 'cancelar' || cleanReply === 'abortar' || cleanReply === 'não' || cleanReply === 'nao') {
+        session.pendingReplyIssueId = undefined;
+        session.pendingReplyIssueTitle = undefined;
+        await client.sendMessage(userId, `${ADA}: Entendido, meu bem! Cancelei a resposta ao comentário. O que deseja que eu faça agora? 🥰🌸`);
+        return;
+      }
+      
+      await client.sendMessage(userId, `${ADA}: ⏳ 💬 Adicionando sua resposta em *${issueId.toUpperCase()}* (${issueTitle})...`);
+      
+      session.pendingReplyIssueId = undefined;
+      session.pendingReplyIssueTitle = undefined;
+      
+      const result = await addIssueComment(issueId, replyBody);
+      if (result.success) {
+        await client.sendMessage(userId, `${ADA}: ✅ 💬 Resposta adicionada com muito amor em *${issueId.toUpperCase()}*! 🥰💖`);
+      } else {
+        await client.sendMessage(userId, `${ADA}: ❌ 💬 Ocorreu um probleminha ao adicionar seu comentário: ${result.error} 🌸`);
+      }
+      return;
+    }
+
+    // Manual trigger for Daily Briefing
+    const cleanBody = (message.body || '').toLowerCase().trim();
+    if (cleanBody === 'daily briefing' || cleanBody === 'resumo matinal' || cleanBody === 'briefing matinal' || cleanBody === 'briefing') {
+      await client.sendMessage(userId, `${ADA}: ⏳ 🌅 Gerando seu Daily Briefing agora mesmo, meu bem...`);
+      const focus = await getMyDailyFocus();
+      if (focus.success) {
+        let msg = `${ADA}: 🌅 *Daily Briefing* 🌸🥰✨\n\n`;
+        msg += `Preparei com todo o meu carinho o seu planejamento de hoje! 💖\n\n`;
+        if (focus.overdue && focus.overdue.length > 0) {
+          msg += `🚨 *Tarefas Atrasadas:* (${focus.overdue.length})\n`;
+          focus.overdue.forEach((t: any) => {
+            msg += `  • *${t.identifier}*: ${t.title} 📅 _(${t.dueDate})_\n`;
+          });
+          msg += `\n`;
+        }
+        if (focus.today && focus.today.length > 0) {
+          msg += `🎯 *Seu Foco de Hoje:* (${focus.today.length})\n`;
+          focus.today.forEach((t: any) => {
+            msg += `  • *${t.identifier}*: ${t.title}\n`;
+          });
+          msg += `\n`;
+        } else {
+          msg += `✨ *Hoje você não tem nenhuma tarefa vencendo!* 🥰\n\n`;
+        }
+        if (focus.backlogCount && focus.backlogCount > 0) {
+          msg += `📋 Você também tem outras *${focus.backlogCount}* tarefas ativas no backlog geral. 🌸\n\n`;
+        }
+        msg += `Que o seu dia seja maravilhoso! Estou sempre aqui para te apoiar! 🥰💖🌸✨`;
+        await client.sendMessage(userId, msg);
+      } else {
+        await client.sendMessage(userId, `${ADA}: ❌ Ocorreu um erro ao gerar o briefing: ${focus.error}`);
+      }
+      return;
+    }
+
     if (message.body) {
       console.log(`[MSG] Recebida de ${chat.name}: "${message.body}"`);
       session.history.push(`User: ${message.body}`);
+    } else if (message.hasMedia) {
+      console.log(`[MSG] Recebida mídia/áudio de ${chat.name}`);
+      session.history.push(`User: [Enviou um áudio ou arquivo de mídia]`);
     }
 
     if (session.history.length > 10) {
@@ -267,12 +327,10 @@ client.on('message_create', async (message: any) => {
           await client.sendMessage(userId, `${ADA}: ❌ 🔄 Falha ao atualizar status da tarefa: ${result.error} 🌸`);
         }
       } else {
-        await client.sendMessage(userId, `${ADA}: ⏳ 📂 Atualizando o projeto *${target}* → *${analysis.targetStatus}*...`);
-        const result = await updateProjectStatus(target, analysis.targetStatus);
-        if (result.success) {
-          let msg = `${ADA}: ✅ 📂 Status do projeto *"${result.projectName}"* atualizado para *"${result.state}"*! 🥰`;
+        const projectResult = await updateProjectStatus(target, analysis.targetStatus);
+        if (projectResult.success) {
+          let msg = `${ADA}: ✅ 📂 Status do projeto *"${projectResult.projectName}"* atualizado para *"${projectResult.state}"*! 🥰`;
           
-          // Check if user also wanted to finalize all issues of this project
           const bodyLower = (message.body || '').toLowerCase();
           if (bodyLower.includes('finaliz') || bodyLower.includes('concl') || bodyLower.includes('fech') || bodyLower.includes('termin')) {
             msg += `\n\n⏳ 🛠️ Finalizando todas as tarefas abertas deste projeto...`;
@@ -286,8 +344,17 @@ client.on('message_create', async (message: any) => {
             }
           }
           await client.sendMessage(userId, msg);
+        } else if (projectResult.error === 'Projeto não encontrado') {
+          // Fallback: Try updating as an issue by title search!
+          await client.sendMessage(userId, `${ADA}: ⏳ 🔄 Projeto *"${target}"* não encontrado. Buscando tarefa ativa correspondente... 🔍💖`);
+          const issueResult = await updateIssueStatus(target, analysis.targetStatus);
+          if (issueResult.success) {
+            await client.sendMessage(userId, `${ADA}: ✅ ${issueStatusIcon(issueResult.status!)} Status da tarefa *"${issueResult.title}"* (*${issueResult.identifier}*) atualizado para *"${issueResult.status}"*! 🥰💖`);
+          } else {
+            await client.sendMessage(userId, `${ADA}: ❌ 🔄 Não encontrei nenhuma tarefa ou projeto correspondente a *"${target}"*. 🌸`);
+          }
         } else {
-          await client.sendMessage(userId, `${ADA}: ❌ 📂 Falha ao atualizar status do projeto: ${result.error} 🌸`);
+          await client.sendMessage(userId, `${ADA}: ❌ 📂 Falha ao atualizar: ${projectResult.error} 🌸`);
         }
       }
       return;

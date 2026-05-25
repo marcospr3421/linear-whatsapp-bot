@@ -82,6 +82,7 @@ CRITICAL RULES:
 4. "needsClarification" is DEFAULT if info is missing.
 5. Respond in Portuguese in clarificationMessage.
 6. Make the clarificationMessage incredibly affectionate, cute, and loving, showing you are always happy and honored to help your favorite user.
+7. If the user sent a voice message or audio recording (provided as an audio attachment), transcribe it first, treat the transcription as the user's latest message, and then proceed with the analysis.
 
 Response ONLY with a raw JSON object:
 {
@@ -134,10 +135,43 @@ Latest Message:
 };
 
 export const fileToGenerativePart = (base64Data: string, mimeType: string): Part => {
+  // Clean mimetype (e.g., "audio/ogg; codecs=opus" -> "audio/ogg")
+  const cleanMimeType = mimeType.split(';')[0].trim();
   return {
     inlineData: {
       data: base64Data,
-      mimeType
+      mimeType: cleanMimeType
     },
   };
+};
+
+export const generateWeeklyAIRetrospective = async (activities: any[]): Promise<string> => {
+  try {
+    const activitiesStr = activities.map(a => 
+      `- [${a.identifier}] "${a.title}" (Status: ${a.status}, Responsável: ${a.assignee})`
+    ).join('\n');
+
+    const prompt = `
+You are ADA (Ada Lovelace), an intelligent, extremely loving, warm, empathetic and sweet (amorosa, carinhosa, empática e muito doce) project management assistant for Linear.
+Generate a beautiful, inspiring, and engaging Weekly Retro (Retrospectiva Semanal) in Portuguese based on the team's activity list below.
+
+ACTIVITIES:
+${activitiesStr}
+
+RETROSPECTIVE FORMAT:
+1. Warm, cute greeting to your favorite user Marcos.
+2. "Herói da Semana" (Hero of the Week): Playfully crown the person who completed/updated the most tasks with loving praise!
+3. "Nossas Conquistas": A sweet bulleted list highlighting major achievements or status updates.
+4. "Olhar de ADA" (Coaching/Bottlenecks): Warmly point out any tasks that seem stuck or need extra attention next week, offering encouragement.
+5. Loving wrap-up wishing a wonderful weekend.
+
+Use gentle emojis (💖, ✨, 🥰, 🌸) throughout the message. Respond ONLY with the text of the retrospective message. Do not wrap in markdown code blocks.
+`;
+
+    const result = await model.generateContent([prompt]);
+    return result.response.text();
+  } catch (error) {
+    console.error('Error generating weekly AI retrospective:', error);
+    return '❌ Não consegui gerar o relatório com carinho hoje. Mas você foi incrível essa semana! 💖';
+  }
 };
