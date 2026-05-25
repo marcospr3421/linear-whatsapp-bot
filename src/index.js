@@ -130,6 +130,13 @@ client.on('message_create', async (message) => {
         const analysis = await (0, gemini_1.analyzeContent)(message.body || '', mediaParts, session.history);
         if (!analysis)
             return;
+        // Normalize targetId (e.g. "mpr388" -> "MPR-388", "MPR388" -> "MPR-388")
+        if (analysis.targetId) {
+            const trimmedTarget = analysis.targetId.trim();
+            if (/^[a-z]{1,10}\d+$/i.test(trimmedTarget)) {
+                analysis.targetId = trimmedTarget.replace(/^([a-z]+)(\d+)$/i, '$1-$2').toUpperCase();
+            }
+        }
         console.log(`[INTENT] ${analysis.type} | From: ${chat.name}`);
         if (analysis.type === 'ignore' || analysis.needsClarification) {
             if (analysis.clarificationMessage) {
