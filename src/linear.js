@@ -183,7 +183,7 @@ const updateIssueStatus = async (identifierOrTitle, statusName) => {
         else {
             // Find issue by title contains
             const issues = await linearClient.issues({
-                filter: { title: { contains: identifierOrTitle } },
+                filter: { title: { containsIgnoreCase: identifierOrTitle } },
                 first: 1
             });
             if (issues.nodes.length > 0) {
