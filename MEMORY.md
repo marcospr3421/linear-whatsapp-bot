@@ -1,7 +1,7 @@
 # ADA Lovelace - Master Context & Memory
 
 ## 📌 Estado Atual do Projeto
-Bot Node.js integrado via `whatsapp-web.js` e `Linear SDK`, utilizando `Gemini 2.5 Flash` para inteligência multimodal.
+Bot Node.js integrado via `whatsapp-web.js` e `Linear SDK`, utilizando `Gemini 3.5 Flash` para inteligência multimodal.
 
 ## 🚀 Funcionalidades Implementadas
 - [x] **Criação Multimodal:** Cria Issues e Projetos a partir de texto, áudio e imagem.
@@ -18,6 +18,11 @@ Bot Node.js integrado via `whatsapp-web.js` e `Linear SDK`, utilizando `Gemini 2
 - [x] **Busca Avançada:** Filtro por responsável.
 - [x] **Segurança:** Whitelist de números, assinatura de webhook, alerta de desconexão.
 - [x] **UI com Ícones:** Respostas formatadas com emojis.
+- [x] **Comandos por Voz:** Transcrição de áudios diretos.
+- [x] **Notificações Interativas:** Permite resposta direta no WhatsApp.
+- [x] **Daily Briefing:** Resumo matinal automático de tarefas e atrasos às 08:30 BRT.
+- [x] **Retrospectiva Semanal:** Análise de retrospectiva semanal divertida às sextas 17h BRT.
+- [x] **Reconhecimento Flexível de IDs:** Aceita `Mpr388`, `MPR 388` e normaliza para `MPR-388`.
 
 ## 🛠️ Infraestrutura
 - **VM:** Google Cloud (`n8n-az-acessorios`)
@@ -26,12 +31,10 @@ Bot Node.js integrado via `whatsapp-web.js` e `Linear SDK`, utilizando `Gemini 2
 - **Repositório:** `https://github.com/marcospr3421/linear-whatsapp-bot`
 
 ## 🧠 Próximos Passos (Roadmap)
-1. **Commit/push** do código atualizado para o GitHub.
-2. **Configurar `LINEAR_WEBHOOK_SECRET`** no `.env` (copiar do Linear).
-3. **Adicionar Comments** no webhook do Linear (Settings > Webhooks).
-4. **Migrar para WhatsApp Business API** (longo prazo, mais estável).
+1. **Configurar `LINEAR_WEBHOOK_SECRET`** no `.env` (se necessário).
+2. **Migrar para WhatsApp Business API** (longo prazo, mais estável).
 
 ## 🔑 Configurações Críticas
-- Modelo: `gemini-2.5-flash`
+- Modelo: `gemini-3.5-flash`
 - Memória: 10 mensagens por sessão
 - Bot: número Salvy | Notificações: número pessoal Marcos

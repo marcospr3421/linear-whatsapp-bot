@@ -157,11 +157,11 @@ client.on('message_create', async (message: any) => {
     const analysis = await analyzeContent(message.body || '', mediaParts, session.history);
     if (!analysis) return;
 
-    // Normalize targetId (e.g. "mpr388" -> "MPR-388", "MPR388" -> "MPR-388")
+    // Normalize targetId (e.g. "mpr388" -> "MPR-388", "MPR 388" -> "MPR-388", "MPR-388" -> "MPR-388")
     if (analysis.targetId) {
       const trimmedTarget = analysis.targetId.trim();
-      if (/^[a-z]{1,10}\d+$/i.test(trimmedTarget)) {
-        analysis.targetId = trimmedTarget.replace(/^([a-z]+)(\d+)$/i, '$1-$2').toUpperCase();
+      if (/^([a-z]{1,10})[- ]*(\d+)$/i.test(trimmedTarget)) {
+        analysis.targetId = trimmedTarget.replace(/^([a-z]{1,10})[- ]*(\d+)$/i, '$1-$2').toUpperCase();
       }
     }
 
@@ -324,7 +324,7 @@ client.on('message_create', async (message: any) => {
       }
       
       const target = analysis.targetId.trim();
-      const isIssue = /^[a-z]{1,10}-\d+$/i.test(target);
+      const isIssue = /^([a-z]{1,10})[- ]*(\d+)$/i.test(target);
       
       if (isIssue) {
         await client.sendMessage(userId, `${ADA}: ⏳ 🔄 Atualizando tarefa *${target.toUpperCase()}* → *${analysis.targetStatus}*...`);

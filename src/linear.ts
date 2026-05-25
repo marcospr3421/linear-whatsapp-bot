@@ -158,7 +158,11 @@ export const searchLinearIssues = async (query: string) => {
 
 async function findIssueByIdentifier(identifier: string) {
   try {
-    const issue = await linearClient.issue(identifier.toUpperCase());
+    let normalized = identifier.trim();
+    if (/^([a-z]{1,10})[- ]*(\d+)$/i.test(normalized)) {
+      normalized = normalized.replace(/^([a-z]{1,10})[- ]*(\d+)$/i, '$1-$2');
+    }
+    const issue = await linearClient.issue(normalized.toUpperCase());
     return issue || null;
   } catch (error) {
     console.error(`Error finding issue by identifier ${identifier}:`, error);
@@ -179,7 +183,7 @@ export const updateIssueStatus = async (identifierOrTitle: string, statusName: s
     let issue: any = null;
     
     // Check if it's an ID
-    if (/^[a-z]{1,10}-\d+$/i.test(identifierOrTitle.trim())) {
+    if (/^([a-z]{1,10})[- ]*(\d+)$/i.test(identifierOrTitle.trim())) {
       issue = await findIssueByIdentifier(identifierOrTitle);
     } else {
       // Find issue by title contains

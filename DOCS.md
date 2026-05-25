@@ -1,7 +1,7 @@
 # Documentação Técnica: ADA (Ada Lovelace) - Linear WhatsApp Bot
 
 ## 🤖 Visão Geral
-ADA é uma assistente inteligente que integra o WhatsApp ao Linear. Ela utiliza o **Google Gemini 2.5 Flash** para processar entradas multimodais (texto, áudio e imagem) e gerenciar o fluxo de trabalho no Linear de forma conversacional.
+ADA é uma assistente inteligente que integra o WhatsApp ao Linear. Ela utiliza o **Google Gemini 3.5 Flash** para processar entradas multimodais (texto, áudio e imagem) e gerenciar o fluxo de trabalho no Linear de forma conversacional.
 
 ## 🧠 Inteligência e Comportamento
 - **Personalidade:** ADA segue o legado de Ada Lovelace — profissional, eficiente e lógica.
@@ -14,7 +14,7 @@ ADA é uma assistente inteligente que integra o WhatsApp ao Linear. Ela utiliza 
 1. **Criação:** "Crie uma tarefa para...", "Novo projeto sobre..."
 2. **Listagem:** "Quais são meus projetos?", "Liste a equipe"
 3. **Busca:** "Busque tarefas do Marcos", "Status da MPR-123"
-4. **Edição:** Status, prioridade, prazo, atribuição
+4. **Edição:** Status, prioridade, prazo, atribuição (Reconhece identificadores de tarefas com hífens, sem hífens ou com espaços, como `mpr388`, `MPR 388` ou `MPR-388`, normalizando-os perfeitamente)
 5. **Comentários:** "Comente na MPR-123 que o orçamento foi aprovado"
 6. **Resumo:** "Como está o projeto App Mobile?"
 7. **Relatório:** "Relatório semanal" (também automático às segundas 9h)

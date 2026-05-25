@@ -160,7 +160,11 @@ const searchLinearIssues = async (query) => {
 exports.searchLinearIssues = searchLinearIssues;
 async function findIssueByIdentifier(identifier) {
     try {
-        const issue = await linearClient.issue(identifier.toUpperCase());
+        let normalized = identifier.trim();
+        if (/^([a-z]{1,10})[- ]*(\d+)$/i.test(normalized)) {
+            normalized = normalized.replace(/^([a-z]{1,10})[- ]*(\d+)$/i, '$1-$2');
+        }
+        const issue = await linearClient.issue(normalized.toUpperCase());
         return issue || null;
     }
     catch (error) {
@@ -177,7 +181,7 @@ const updateIssueStatus = async (identifierOrTitle, statusName) => {
             return { success: false, error: 'Status not found' };
         let issue = null;
         // Check if it's an ID
-        if (/^[a-z]{1,10}-\d+$/i.test(identifierOrTitle.trim())) {
+        if (/^([a-z]{1,10})[- ]*(\d+)$/i.test(identifierOrTitle.trim())) {
             issue = await findIssueByIdentifier(identifierOrTitle);
         }
         else {

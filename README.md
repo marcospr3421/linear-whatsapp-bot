@@ -1,10 +1,10 @@
 # ADA (Ada Lovelace) - Linear WhatsApp Bot 🤖🚀
 
-Este bot, batizado de **ADA (Ada Lovelace)**, integra o **WhatsApp** com o **Linear**, utilizando a inteligência do **Google Gemini 2.5 Flash** para transformar mensagens de texto, áudio e imagem em tarefas (Issues) ou Projetos de forma automática e inteligente.
+Este bot, batizado de **ADA (Ada Lovelace)**, integra o **WhatsApp** com o **Linear**, utilizando a inteligência do **Google Gemini 3.5 Flash** para transformar mensagens de texto, áudio e imagem em tarefas (Issues) ou Projetos de forma automática e inteligente.
 
 ## ✨ Funcionalidades
 
-- 📝 **Criação de Issues:** Transforma mensagens curtas ou comandos em tickets no Linear.
+- 📝 **Criação e Gestão de Issues:** Transforma mensagens curtas ou comandos em tickets no Linear. Oferece reconhecimento ultra-flexível de IDs de tarefas (ex: aceita `Mpr388`, `MPR 388` ou `mpr-388` e normaliza automaticamente para `MPR-388`).
 - 📂 **Criação de Projetos:** Identifica quando uma solicitação é complexa e sugere a criação de um projeto.
 - 📋 **Listagem de Projetos:** Lista projetos ativos e permite o gerenciamento direto pelo WhatsApp.
 - 🗄️ **Arquivamento de Projetos:** Permite cancelar ou arquivar projetos existentes através de linguagem natural.
@@ -17,7 +17,7 @@ Este bot, batizado de **ADA (Ada Lovelace)**, integra o **WhatsApp** com o **Lin
 
 - [Node.js](https://nodejs.org/)
 - [whatsapp-web.js](https://wwebjs.dev/) - Cliente WhatsApp via Puppeteer.
-- [Google Gemini 2.5 Flash](https://ai.google.dev/) - IA para análise multimodal.
+- [Google Gemini 3.5 Flash](https://ai.google.dev/) - IA para análise multimodal.
 - [Linear SDK](https://developers.linear.app/docs/sdk/getting-started) - Integração com a API do Linear.
 - [PM2](https://pm2.keymetrics.io/) - Gerenciamento de processo em background.
 
@@ -69,6 +69,7 @@ Para evitar que o bot processe conversas pessoais, ele responde apenas ao comand
 
 ## 📝 Notas de Versão
 
+- **v1.1.0**: Migração para Gemini 3.5 Flash, novos agendadores (Daily Briefing e Weekly AI Retrospective), suporte nativo a comandos de voz direto por áudio, notificações interativas com resposta direta e normalização inteligente de IDs de tarefas.
 - **v1.0.0**: Lançamento inicial com suporte multimodal e comando de gatilho.
 
 ---
