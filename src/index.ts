@@ -7,6 +7,8 @@ import {
   archiveLinearProject,
   searchLinearIssuesAdvanced,
   updateIssueStatus,
+  updateProjectStatus,
+  closeAllProjectIssues,
   assignIssue,
   updateIssuePriority,
   listTeamMembers,
@@ -55,11 +57,16 @@ client.on('message_create', async (message: any) => {
   try {
     if (message.isStatus) return;
 
+    // Ignore messages sent by the bot itself to prevent self-reply loops
+    if (message.fromMe && message.body && (message.body.startsWith(ADA) || message.body.includes(ADA))) {
+      return;
+    }
+
     const chat = await message.getChat();
     if (chat.isGroup) return;
 
     const userId = message.from;
-    if (!isAllowedNumber(userId)) {
+    if (!(await isAllowedNumber(userId, client))) {
       console.log(`[AUTH] Blocked: ${userId}`);
       return;
     }
@@ -244,15 +251,44 @@ client.on('message_create', async (message: any) => {
     // HANDLE UPDATE STATUS
     if (analysis.type === 'update_status') {
       if (!analysis.targetId || !analysis.targetStatus) {
-        await client.sendMessage(userId, `${ADA}: 📝❓ Informe o ID da tarefa (ex: MPR-123) e o novo status.`);
+        await client.sendMessage(userId, `${ADA}: 📝❓ Informe o ID da tarefa (ex: MPR-123) ou o nome do projeto e o novo status.`);
         return;
       }
-      await client.sendMessage(userId, `${ADA}: ⏳ 🔄 Atualizando *${analysis.targetId.toUpperCase()}* → *${analysis.targetStatus}*...`);
-      const result = await updateIssueStatus(analysis.targetId, analysis.targetStatus);
-      if (result.success) {
-        await client.sendMessage(userId, `${ADA}: ✅ ${issueStatusIcon(result.status!)} Status de *${analysis.targetId.toUpperCase()}* atualizado para *"${result.status}"*!`);
+      
+      const target = analysis.targetId.trim();
+      const isIssue = /^[a-z]{1,10}-\d+$/i.test(target);
+      
+      if (isIssue) {
+        await client.sendMessage(userId, `${ADA}: ⏳ 🔄 Atualizando tarefa *${target.toUpperCase()}* → *${analysis.targetStatus}*...`);
+        const result = await updateIssueStatus(target, analysis.targetStatus);
+        if (result.success) {
+          await client.sendMessage(userId, `${ADA}: ✅ ${issueStatusIcon(result.status!)} Status de *${target.toUpperCase()}* atualizado para *"${result.status}"*! 💖`);
+        } else {
+          await client.sendMessage(userId, `${ADA}: ❌ 🔄 Falha ao atualizar status da tarefa: ${result.error} 🌸`);
+        }
       } else {
-        await client.sendMessage(userId, `${ADA}: ❌ 🔄 Falha ao atualizar status: ${result.error}`);
+        await client.sendMessage(userId, `${ADA}: ⏳ 📂 Atualizando o projeto *${target}* → *${analysis.targetStatus}*...`);
+        const result = await updateProjectStatus(target, analysis.targetStatus);
+        if (result.success) {
+          let msg = `${ADA}: ✅ 📂 Status do projeto *"${result.projectName}"* atualizado para *"${result.state}"*! 🥰`;
+          
+          // Check if user also wanted to finalize all issues of this project
+          const bodyLower = (message.body || '').toLowerCase();
+          if (bodyLower.includes('finaliz') || bodyLower.includes('concl') || bodyLower.includes('fech') || bodyLower.includes('termin')) {
+            msg += `\n\n⏳ 🛠️ Finalizando todas as tarefas abertas deste projeto...`;
+            await client.sendMessage(userId, msg);
+            
+            const issuesResult = await closeAllProjectIssues(target);
+            if (issuesResult.success) {
+              msg = `${ADA}: ✅ ✨ Status do projeto atualizado e todas as *${issuesResult.count}* tarefas abertas foram concluídas com muito sucesso! 💖🌸`;
+            } else {
+              msg = `${ADA}: ⚠️ 📂 Status do projeto atualizado, mas houve uma falha ao concluir as tarefas: ${issuesResult.error} 🌸`;
+            }
+          }
+          await client.sendMessage(userId, msg);
+        } else {
+          await client.sendMessage(userId, `${ADA}: ❌ 📂 Falha ao atualizar status do projeto: ${result.error} 🌸`);
+        }
       }
       return;
     }

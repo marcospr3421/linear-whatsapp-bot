@@ -89,7 +89,7 @@ export const createLinearProject = async (name: string, description: string) => 
 export const listLinearProjects = async () => {
   try {
     const projects = await linearClient.projects({
-      filter: { state: { in: ['started', 'planned'] } }
+      filter: { state: { nin: ['completed', 'canceled'] } }
     });
     return projects.nodes.map(p => ({
       id: p.id,
@@ -117,9 +117,7 @@ export const archiveLinearProject = async (projectIdOrName: string) => {
       }
     }
 
-    await linearClient.updateProject(projectId, {
-      state: 'archived'
-    });
+    await linearClient.archiveProject(projectId);
     return { success: true };
   } catch (error) {
     console.error('Error archiving Linear Project:', error);
@@ -138,18 +136,35 @@ export const searchLinearIssues = async (query: string) => {
       },
       first: 5
     });
-    return issues.nodes.map(i => ({
-      identifier: i.identifier,
-      title: i.title,
-      status: i.state.name,
-      priority: i.priorityLabel,
-      url: i.url
-    }));
+    
+    const results = await Promise.all(
+      issues.nodes.map(async (i) => {
+        const state = i.state ? await i.state : undefined;
+        return {
+          identifier: i.identifier,
+          title: i.title,
+          status: state?.name || '—',
+          priority: i.priorityLabel,
+          url: i.url
+        };
+      })
+    );
+    return results;
   } catch (error) {
     console.error('Error searching Linear Issues:', error);
     return [];
   }
 };
+
+async function findIssueByIdentifier(identifier: string) {
+  try {
+    const issue = await linearClient.issue(identifier.toUpperCase());
+    return issue || null;
+  } catch (error) {
+    console.error(`Error finding issue by identifier ${identifier}:`, error);
+    return null;
+  }
+}
 
 export const updateIssueStatus = async (identifier: string, statusName: string) => {
   try {
@@ -161,16 +176,98 @@ export const updateIssueStatus = async (identifier: string, statusName: string) 
 
     if (!targetState) return { success: false, error: 'Status not found' };
 
-    const issues = await linearClient.issues({ filter: { identifier: { eq: identifier.toUpperCase() } } });
-    if (issues.nodes.length === 0) return { success: false, error: 'Issue not found' };
+    const issue = await findIssueByIdentifier(identifier);
+    if (!issue) return { success: false, error: 'Issue not found' };
 
-    await linearClient.updateIssue(issues.nodes[0].id, {
+    await linearClient.updateIssue(issue.id, {
       stateId: targetState.id
     });
     return { success: true, status: targetState.name };
   } catch (error) {
     console.error('Error updating status:', error);
     return { success: false, error };
+  }
+};
+
+export const updateProjectStatus = async (projectNameOrId: string, statusName: string) => {
+  try {
+    let projectId = projectNameOrId;
+    
+    // Find the project if a name was provided
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectNameOrId)) {
+      const projects = await linearClient.projects({
+        filter: { name: { contains: projectNameOrId } }
+      });
+      if (projects.nodes.length > 0) {
+        projectId = projects.nodes[0].id;
+      } else {
+        return { success: false, error: 'Projeto não encontrado' };
+      }
+    }
+    
+    // Map status name to Linear project state:
+    const sName = statusName.toLowerCase();
+    let state: 'planning' | 'started' | 'paused' | 'completed' | 'canceled' = 'started';
+    if (sName.includes('compl') || sName.includes('concl') || sName.includes('done') || sName.includes('finish') || sName.includes('completo')) {
+      state = 'completed';
+    } else if (sName.includes('progress') || sName.includes('andamento') || sName.includes('start') || sName.includes('inic') || sName.includes('ativo')) {
+      state = 'started';
+    } else if (sName.includes('plan') || sName.includes('prep') || sName.includes('planejado')) {
+      state = 'planning';
+    } else if (sName.includes('paus') || sName.includes('stop')) {
+      state = 'paused';
+    } else if (sName.includes('canc') || sName.includes('arquiv')) {
+      state = 'canceled';
+    }
+    
+    await linearClient.updateProject(projectId, { state });
+    const p = await linearClient.project(projectId);
+    return { success: true, projectName: p?.name || projectNameOrId, state };
+  } catch (error: any) {
+    console.error('Error updating project status:', error);
+    return { success: false, error: error?.message || error };
+  }
+};
+
+export const closeAllProjectIssues = async (projectNameOrId: string) => {
+  try {
+    let projectId = projectNameOrId;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectNameOrId)) {
+      const projects = await linearClient.projects({
+        filter: { name: { contains: projectNameOrId } }
+      });
+      if (projects.nodes.length > 0) {
+        projectId = projects.nodes[0].id;
+      } else {
+        return { success: false, error: 'Projeto não encontrado' };
+      }
+    }
+    
+    // Find the state ID for "Done"
+    const workflowStates = await linearClient.workflowStates();
+    const doneState = workflowStates.nodes.find(s => 
+      s.name.toLowerCase() === 'done' || 
+      s.name.toLowerCase() === 'concluído' ||
+      s.name.toLowerCase() === 'concluido'
+    );
+    if (!doneState) return { success: false, error: 'Estado de conclusão não encontrado' };
+
+    // Get all issues for this project that are not already done/canceled
+    const issues = await linearClient.issues({
+      filter: { 
+        project: { id: { eq: projectId } },
+        state: { type: { nin: ['completed', 'canceled'] } }
+      }
+    });
+
+    for (const issue of issues.nodes) {
+      await linearClient.updateIssue(issue.id, { stateId: doneState.id });
+    }
+
+    return { success: true, count: issues.nodes.length };
+  } catch (error: any) {
+    console.error('Error closing all project issues:', error);
+    return { success: false, error: error?.message || error };
   }
 };
 
@@ -184,10 +281,10 @@ export const assignIssue = async (identifier: string, assigneeName: string) => {
 
     if (!targetUser) return { success: false, error: 'Usuário não encontrado' };
 
-    const issues = await linearClient.issues({ filter: { identifier: { eq: identifier.toUpperCase() } } });
-    if (issues.nodes.length === 0) return { success: false, error: 'Tarefa não encontrada' };
+    const issue = await findIssueByIdentifier(identifier);
+    if (!issue) return { success: false, error: 'Tarefa não encontrada' };
 
-    await linearClient.updateIssue(issues.nodes[0].id, {
+    await linearClient.updateIssue(issue.id, {
       assigneeId: targetUser.id
     });
     return { success: true, assignee: targetUser.name };
@@ -199,10 +296,10 @@ export const assignIssue = async (identifier: string, assigneeName: string) => {
 
 export const updateIssuePriority = async (identifier: string, priority: number) => {
   try {
-    const issues = await linearClient.issues({ filter: { identifier: { eq: identifier.toUpperCase() } } });
-    if (issues.nodes.length === 0) return { success: false, error: 'Tarefa não encontrada' };
+    const issue = await findIssueByIdentifier(identifier);
+    if (!issue) return { success: false, error: 'Tarefa não encontrada' };
 
-    await linearClient.updateIssue(issues.nodes[0].id, {
+    await linearClient.updateIssue(issue.id, {
       priority: priority
     });
     return { success: true, priority: priority };
@@ -226,11 +323,6 @@ export const listTeamMembers = async () => {
   }
 };
 
-const findIssueByIdentifier = async (identifier: string) => {
-  const issues = await linearClient.issues({ filter: { identifier: { eq: identifier.toUpperCase() } } });
-  return issues.nodes[0] || null;
-};
-
 export const findSimilarIssues = async (title: string) => {
   try {
     const keywords = title.split(' ').filter((w) => w.length > 3).slice(0, 3);
@@ -243,12 +335,18 @@ export const findSimilarIssues = async (title: string) => {
       first: 5,
     });
 
-    return issues.nodes.map((i) => ({
-      identifier: i.identifier,
-      title: i.title,
-      status: i.state.name,
-      url: i.url,
-    }));
+    const results = await Promise.all(
+      issues.nodes.map(async (i) => {
+        const state = i.state ? await i.state : undefined;
+        return {
+          identifier: i.identifier,
+          title: i.title,
+          status: state?.name || '—',
+          url: i.url,
+        };
+      })
+    );
+    return results;
   } catch (error) {
     console.error('Error finding similar issues:', error);
     return [];
@@ -299,11 +397,20 @@ export const getProjectSummary = async (projectName: string) => {
     const byStatus: Record<string, number> = {};
     const byAssignee: Record<string, number> = {};
 
-    for (const issue of issues.nodes) {
-      const status = issue.state.name;
-      byStatus[status] = (byStatus[status] || 0) + 1;
-      const assignee = (await issue.assignee)?.name || 'Sem responsável';
-      byAssignee[assignee] = (byAssignee[assignee] || 0) + 1;
+    const issuesWithState = await Promise.all(
+      issues.nodes.map(async (issue) => {
+        const state = issue.state ? await issue.state : undefined;
+        const assignee = (await issue.assignee)?.name || 'Sem responsável';
+        return {
+          status: state?.name || 'Sem status',
+          assignee,
+        };
+      })
+    );
+
+    for (const item of issuesWithState) {
+      byStatus[item.status] = (byStatus[item.status] || 0) + 1;
+      byAssignee[item.assignee] = (byAssignee[item.assignee] || 0) + 1;
     }
 
     const done = Object.entries(byStatus)
@@ -346,18 +453,21 @@ export const searchLinearIssuesAdvanced = async (query: string, assigneeName?: s
     }
 
     const issues = await linearClient.issues({ filter: filter as never, first: 10 });
-    const results = [];
-    for (const i of issues.nodes) {
-      results.push({
-        identifier: i.identifier,
-        title: i.title,
-        status: i.state.name,
-        priority: i.priorityLabel,
-        assignee: (await i.assignee)?.name || '—',
-        dueDate: i.dueDate || '—',
-        url: i.url,
-      });
-    }
+    const results = await Promise.all(
+      issues.nodes.map(async (i) => {
+        const state = i.state ? await i.state : undefined;
+        const assignee = i.assignee ? await i.assignee : undefined;
+        return {
+          identifier: i.identifier,
+          title: i.title,
+          status: state?.name || '—',
+          priority: i.priorityLabel,
+          assignee: assignee?.name || '—',
+          dueDate: i.dueDate || '—',
+          url: i.url,
+        };
+      })
+    );
     return results;
   } catch (error) {
     console.error('Error in advanced search:', error);
@@ -375,13 +485,23 @@ export const generateWeeklyReport = async (): Promise<string> => {
       first: 100,
     });
 
+    const issuesWithStateName = await Promise.all(
+      issues.nodes.map(async (i) => {
+        const state = i.state ? await i.state : undefined;
+        return {
+          node: i,
+          stateName: state?.name || '',
+        };
+      })
+    );
+
     const created = issues.nodes.filter((i) => new Date(i.createdAt) >= weekAgo).length;
-    const completed = issues.nodes.filter((i) => {
-      const s = i.state.name.toLowerCase();
+    const completed = issuesWithStateName.filter(({ stateName }) => {
+      const s = stateName.toLowerCase();
       return s.includes('done') || s.includes('conclu');
     }).length;
-    const inProgress = issues.nodes.filter((i) => {
-      const s = i.state.name.toLowerCase();
+    const inProgress = issuesWithStateName.filter(({ stateName }) => {
+      const s = stateName.toLowerCase();
       return s.includes('progress') || s.includes('andamento');
     }).length;
 

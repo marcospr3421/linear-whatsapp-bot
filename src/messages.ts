@@ -15,6 +15,7 @@ export const projectStateIcon = (state: string): string => {
   const s = state.toLowerCase();
   if (s.includes('started')) return '🟢';
   if (s.includes('planned')) return '📋';
+  if (s.includes('backlog')) return '⏳';
   if (s.includes('paused')) return '⏸️';
   if (s.includes('completed')) return '✅';
   if (s.includes('cancel')) return '🚫';
