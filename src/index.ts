@@ -23,7 +23,7 @@ import { Part } from '@google/generative-ai';
 import { startWebhookServer } from './webhook';
 import { startWeeklyReportScheduler } from './scheduler';
 import { isAllowedNumber } from './auth';
-import { ADA, priorityLabel, projectStateIcon, issueStatusIcon } from './messages';
+import { ADA, priorityLabel, projectStateIcon, issueStatusIcon, formatDailyBriefing } from './messages';
 import { sessions, Session } from './sessions';
 import dotenv from 'dotenv';
 
@@ -103,28 +103,7 @@ client.on('message_create', async (message: any) => {
       await client.sendMessage(userId, `${ADA}: ⏳ 🌅 Gerando seu Daily Briefing agora mesmo, meu bem...`);
       const focus = await getMyDailyFocus();
       if (focus.success) {
-        let msg = `${ADA}: 🌅 *Daily Briefing* 🌸🥰✨\n\n`;
-        msg += `Preparei com todo o meu carinho o seu planejamento de hoje! 💖\n\n`;
-        if (focus.overdue && focus.overdue.length > 0) {
-          msg += `🚨 *Tarefas Atrasadas:* (${focus.overdue.length})\n`;
-          focus.overdue.forEach((t: any) => {
-            msg += `  • *${t.identifier}*: ${t.title} 📅 _(${t.dueDate})_\n`;
-          });
-          msg += `\n`;
-        }
-        if (focus.today && focus.today.length > 0) {
-          msg += `🎯 *Seu Foco de Hoje:* (${focus.today.length})\n`;
-          focus.today.forEach((t: any) => {
-            msg += `  • *${t.identifier}*: ${t.title}\n`;
-          });
-          msg += `\n`;
-        } else {
-          msg += `✨ *Hoje você não tem nenhuma tarefa vencendo!* 🥰\n\n`;
-        }
-        if (focus.backlogCount && focus.backlogCount > 0) {
-          msg += `📋 Você também tem outras *${focus.backlogCount}* tarefas ativas no backlog geral. 🌸\n\n`;
-        }
-        msg += `Que o seu dia seja maravilhoso! Estou sempre aqui para te apoiar! 🥰💖🌸✨`;
+        const msg = formatDailyBriefing(focus);
         await client.sendMessage(userId, msg);
       } else {
         await client.sendMessage(userId, `${ADA}: ❌ Ocorreu um erro ao gerar o briefing: ${focus.error}`);
@@ -177,6 +156,19 @@ client.on('message_create', async (message: any) => {
       } else {
         session.lastAnalysis = undefined;
         session.mediaParts = undefined;
+      }
+      return;
+    }
+
+    // HANDLE DAILY BRIEFING
+    if (analysis.type === 'daily_briefing') {
+      await client.sendMessage(userId, `${ADA}: ⏳ 🌅 Gerando seu Daily Briefing agora mesmo, meu bem...`);
+      const focus = await getMyDailyFocus();
+      if (focus.success) {
+        const msg = formatDailyBriefing(focus);
+        await client.sendMessage(userId, msg);
+      } else {
+        await client.sendMessage(userId, `${ADA}: ❌ Ocorreu um erro ao gerar o briefing: ${focus.error}`);
       }
       return;
     }

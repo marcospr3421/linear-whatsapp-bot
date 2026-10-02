@@ -33,6 +33,7 @@ export interface GeminiResponse {
     | 'weekly_report'
     | 'confirm_create'
     | 'list_team'
+    | 'daily_briefing'
     | 'ignore';
   title: string;
   description: string;
@@ -73,6 +74,7 @@ INTENTS:
 - "weekly_report": User wants weekly productivity summary.
 - "confirm_create": User confirms creating after duplicate warning ("sim", "criar mesmo assim").
 - "list_team": List team members.
+- "daily_briefing": User wants their daily summary/briefing of focus, projects, issues, statuses, and priorities.
 - "ignore": Small talk, thanks, or aborting.
 
 CRITICAL RULES:

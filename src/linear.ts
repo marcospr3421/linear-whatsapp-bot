@@ -573,6 +573,17 @@ export const getMyDailyFocus = async () => {
       }
     });
 
+    const projectsNodes = await linearClient.projects({
+      filter: { state: { nin: ['completed', 'canceled'] } }
+    });
+    
+    const projects = projectsNodes.nodes.map(p => ({
+      id: p.id,
+      name: p.name,
+      state: p.state,
+      url: `https://linear.app/project/${p.id}`
+    }));
+
     const today: any[] = [];
     const overdue: any[] = [];
     const backlog: any[] = [];
@@ -583,6 +594,7 @@ export const getMyDailyFocus = async () => {
         identifier: i.identifier,
         title: i.title,
         status: state?.name || '—',
+        priority: i.priority || 0,
         dueDate: i.dueDate || null,
         url: i.url
       };
@@ -598,7 +610,14 @@ export const getMyDailyFocus = async () => {
       }
     }
 
-    return { success: true, name: viewer.name, today, overdue, backlogCount: backlog.length };
+    return { 
+      success: true, 
+      name: viewer.name, 
+      today, 
+      overdue, 
+      backlog, 
+      projects 
+    };
   } catch (error: any) {
     console.error('Error getting daily focus:', error);
     return { success: false, error: error?.message || error };

@@ -1,7 +1,7 @@
 import { Client } from 'whatsapp-web.js';
 import { generateWeeklyReport, getMyDailyFocus, getTeamWeeklyActivity } from './linear';
 import { generateWeeklyAIRetrospective } from './gemini';
-import { ADA } from './messages';
+import { ADA, formatDailyBriefing } from './messages';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -52,32 +52,7 @@ export const startWeeklyReportScheduler = (client: Client) => {
         return;
       }
 
-      let msg = `${ADA}: 🌅 *Bom dia, ${focus.name}!* 🌸🥰✨\n\n`;
-      msg += `Preparei com todo o meu carinho o seu *Daily Briefing* de hoje para te ajudar a brilhar! 💖\n\n`;
-
-      if (focus.overdue && focus.overdue.length > 0) {
-        msg += `🚨 *Atenção! Tarefas Atrasadas:* (${focus.overdue.length})\n`;
-        focus.overdue.forEach((t: any) => {
-          msg += `  • *${t.identifier}*: ${t.title} 📅 _(${t.dueDate})_\n`;
-        });
-        msg += `\n`;
-      }
-
-      if (focus.today && focus.today.length > 0) {
-        msg += `🎯 *Seu Foco de Hoje:* (${focus.today.length})\n`;
-        focus.today.forEach((t: any) => {
-          msg += `  • *${t.identifier}*: ${t.title}\n`;
-        });
-        msg += `\n`;
-      } else {
-        msg += `✨ *Hoje você não tem nenhuma tarefa vencendo!* Que alívio, meu bem! 🥰\n\n`;
-      }
-
-      if (focus.backlogCount && focus.backlogCount > 0) {
-        msg += `📋 Você também tem outras *${focus.backlogCount}* tarefas ativas no backlog geral para ficar de olho quando puder. 🌸\n\n`;
-      }
-
-      msg += `Que o seu dia seja maravilhoso, produtivo e cheio de realizações! Estou sempre aqui para te apoiar! 🥰💖🌸✨`;
+      const msg = formatDailyBriefing(focus);
 
       await client.sendMessage(NOTIFY_NUMBER, msg);
       lastBriefingDate = todayDateStr;

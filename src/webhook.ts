@@ -2,7 +2,7 @@ import express, { Request } from 'express';
 import crypto from 'crypto';
 import { Client } from 'whatsapp-web.js';
 import dotenv from 'dotenv';
-import { ADA, issueStatusIcon } from './messages';
+import { ADA, issueStatusIcon, projectStateIcon } from './messages';
 import { sessions } from './sessions';
 
 dotenv.config();
@@ -61,54 +61,66 @@ export const startWebhookServer = (whatsappClient: Client) => {
 
         console.log(`[WEBHOOK] ${action} ${type} | ${data?.identifier || data?.name || data?.id}`);
 
-        if (!NOTIFY_NUMBER) {
-          return res.sendStatus(200);
-        }
-
-        let message = '';
-
-        if (type === 'Issue') {
-          const issueIdentifier = data.identifier;
-          const issueTitle = data.title;
-          const issueUrl = url || data.url;
-
-          if (action === 'create') {
-            message = `${ADA}: 🆕 📌 *Nova Issue*\n\n📛 *${issueIdentifier}:* ${issueTitle}\n🎯 Prioridade: ${data.priorityLabel || '⚪ Nenhuma'}\n${issueStatusIcon(data.state?.name || '')} Status: ${data.state?.name || '—'}\n\n🔗 ${issueUrl}`;
-          } else if (action === 'update' && updatedFrom?.stateId != null) {
-            message = `${ADA}: 🔄 ${issueStatusIcon(data.state?.name || '')} *Status Atualizado*\n\n📌 *${issueIdentifier}*\n📊 Novo status: *${data.state?.name}*\n\n🔗 ${issueUrl}`;
-          } else if (action === 'update' && updatedFrom?.assigneeId != null) {
-            const assignee = data.assignee?.name || '👤 Ninguém';
-            message = `${ADA}: 👤 *Responsável Alterado*\n\n📌 *${issueIdentifier}*\n👥 Agora: *${assignee}*\n\n🔗 ${issueUrl}`;
-          } else if (action === 'update' && updatedFrom?.priority != null) {
-            message = `${ADA}: 🎯 *Prioridade Alterada*\n\n📌 *${issueIdentifier}*\n🎯 Nova prioridade: *${data.priorityLabel || data.priority}*\n\n🔗 ${issueUrl}`;
-          }
-        } else if (type === 'Comment' && action === 'create') {
-          const author = payload.actor?.name || 'Alguém';
-          const body = (data.body || '').slice(0, 200);
-          const issueIdentifier = data.issue?.identifier || 'Tarefa';
-          const issueTitle = data.issue?.title || '';
-          
-          message = `${ADA}: 💬 *Novo Comentário em ${issueIdentifier}*\n\n👤 *${author}* comentou:\n"${body}"\n\n🔗 ${url || data.url}\n\n💡 _Deseja responder a este comentário, meu bem? É só digitar sua resposta abaixo! 🥰💖_`;
-
-          if (NOTIFY_NUMBER && data.issue?.identifier) {
-            if (!sessions[NOTIFY_NUMBER]) {
-              sessions[NOTIFY_NUMBER] = { history: [] };
-            }
-            sessions[NOTIFY_NUMBER].pendingReplyIssueId = data.issue.identifier;
-            sessions[NOTIFY_NUMBER].pendingReplyIssueTitle = issueTitle;
-          }
-        } else if (type === 'Project' && action === 'create') {
-          message = `${ADA}: 🆕 📂 *Novo Projeto*\n\n📛 *${data.name}*\n📊 Status: ${data.state}\n\n🔗 ${url || data.url}`;
-        }
-
-        if (message) {
-          await whatsappClient.sendMessage(NOTIFY_NUMBER, message);
-        }
-
+        // Acknowledge the receipt of the webhook to Linear immediately
+        // This prevents Linear's 5-second timeout limit from triggering retries
         res.sendStatus(200);
+
+        // Process the message building and WhatsApp delivery in the background
+        (async () => {
+          try {
+            if (!NOTIFY_NUMBER) return;
+
+            let message = '';
+
+            if (type === 'Issue') {
+              const issueIdentifier = data.identifier;
+              const issueTitle = data.title;
+              const issueUrl = url || data.url;
+
+              if (action === 'create') {
+                message = `${ADA}: 🆕 📌 *Nova Issue*\n\n📛 *${issueIdentifier}:* ${issueTitle}\n🎯 Prioridade: ${data.priorityLabel || '⚪ Nenhuma'}\n${issueStatusIcon(data.state?.name || '')} Status: ${data.state?.name || '—'}\n\n🔗 ${issueUrl}`;
+              } else if (action === 'update' && updatedFrom?.stateId != null) {
+                message = `${ADA}: 🔄 ${issueStatusIcon(data.state?.name || '')} *Status Atualizado*\n\n📌 *${issueIdentifier}*\n📊 Novo status: *${data.state?.name}*\n\n🔗 ${issueUrl}`;
+              } else if (action === 'update' && updatedFrom?.assigneeId != null) {
+                const assignee = data.assignee?.name || '👤 Ninguém';
+                message = `${ADA}: 👤 *Responsável Alterado*\n\n📌 *${issueIdentifier}*\n👥 Agora: *${assignee}*\n\n🔗 ${issueUrl}`;
+              } else if (action === 'update' && updatedFrom?.priority != null) {
+                message = `${ADA}: 🎯 *Prioridade Alterada*\n\n📌 *${issueIdentifier}*\n🎯 Nova prioridade: *${data.priorityLabel || data.priority}*\n\n🔗 ${issueUrl}`;
+              }
+            } else if (type === 'Comment' && action === 'create') {
+              const author = payload.actor?.name || 'Alguém';
+              const body = (data.body || '').slice(0, 200);
+              const issueIdentifier = data.issue?.identifier || 'Tarefa';
+              const issueTitle = data.issue?.title || '';
+              
+              message = `${ADA}: 💬 *Novo Comentário em ${issueIdentifier}*\n\n👤 *${author}* comentou:\n"${body}"\n\n🔗 ${url || data.url}\n\n💡 _Deseja responder a este comentário, meu bem? É só digitar sua resposta abaixo! 🥰💖_`;
+
+              if (data.issue?.identifier) {
+                if (!sessions[NOTIFY_NUMBER]) {
+                  sessions[NOTIFY_NUMBER] = { history: [] };
+                }
+                sessions[NOTIFY_NUMBER].pendingReplyIssueId = data.issue.identifier;
+                sessions[NOTIFY_NUMBER].pendingReplyIssueTitle = issueTitle;
+              }
+            } else if (type === 'Project' && action === 'create') {
+              const stateLabel = data.state ? `${projectStateIcon(data.state)} ${data.state}` : '📋 planned';
+              message = `${ADA}: 🆕 📂 *Novo Projeto*\n\n📛 *${data.name}*\n📊 Status: ${stateLabel}\n\n🔗 ${url || data.url}`;
+            }
+
+            if (message) {
+              await whatsappClient.sendMessage(NOTIFY_NUMBER, message);
+            }
+          } catch (backgroundError) {
+            console.error('[WEBHOOK] Background WhatsApp notification processing error:', backgroundError);
+          }
+        })();
+
       } catch (error) {
         console.error('[WEBHOOK] Error processing Linear webhook:', error);
-        res.sendStatus(500);
+        // We only attempt to send 500 if headers haven't been sent yet (safety check)
+        if (!res.headersSent) {
+          res.sendStatus(500);
+        }
       }
     }
   );
